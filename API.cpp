@@ -1,5 +1,4 @@
 #include "API.h"
-
 #include <cstdlib>
 #include <iostream>
 
