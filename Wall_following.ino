@@ -8,26 +8,32 @@ const int l_echoPin = 32;
 const int f_trigPin = 21;
 const int f_echoPin = 19;
 
-const int l_in2 = 27;   // speed
-const int l_in1 = 26;   // direction
 
-const int r_in2 = 13;   // speed
-const int r_in1 = 25;   // direction
+const int IN1 = 13;
+const int IN2 = 25;
+const int IN3 = 26;
+const int IN4 = 27;
 
-const int pwmFreq = 500;
-const int pwmResolution = 10; 
+const int ENA = 12;   // PWM left
+const int ENB = 15;   // PWM
+
+// -------- PWM CONFIG --------
+const int pwmFreq = 1000;
+const int pwmResolution = 8;   // 0–255
 
 
 #define SOUND_SPEED 0.034
-#define WALL_DIST 10.00
+#define WALL_DIST 15.00 //Calibrate
 
-#define RIGHT_SPD 100 //larger the value, slower the speed
+#define RIGHT_SPD 100 
 #define LEFT_SPD 100
-#define RIGHT_TURN_SPD 512
-#define LEFT_TURN_SPD 512 //larger the value, slower the turn (also affects reverse speed)
 
-#define TARGET_LEFT_DIST 8.0   // center of corridor 
-#define KP 15.0                // proportional gain (TUNE)
+#define RIGHT_TURN_SPD 90
+#define LEFT_TURN_SPD 90
+#define TURN_DELAY 300
+#define EMERGENCY_STOP_DIST 4
+#define TARGET_LEFT_DIST 7.80   // center of corridor 
+#define KP 8              // proportional gain (TUNE)
 
 long duration;
 float distance;
@@ -43,11 +49,13 @@ MotionState state = MOVING_FORWARD;
 void setup() {
   // put your setup code here, to run once:
   Serial.begin(115200);
-  pinMode(l_in1, OUTPUT);
-  pinMode(r_in1, OUTPUT);
+  pinMode(IN1, OUTPUT);
+  pinMode(IN2, OUTPUT);
+  pinMode(IN3, OUTPUT);
+  pinMode(IN4, OUTPUT);
 
-  ledcAttach(l_in2, pwmFreq, pwmResolution);
-  ledcAttach(r_in2, pwmFreq, pwmResolution);
+  ledcAttach(ENA, pwmFreq, pwmResolution);
+  ledcAttach(ENB, pwmFreq, pwmResolution);  
   
   pinMode(r_trigPin, OUTPUT); 
   pinMode(r_echoPin, INPUT); 
@@ -56,6 +64,7 @@ void setup() {
   pinMode(f_trigPin, OUTPUT); 
   pinMode(f_echoPin, INPUT); 
 
+  delay(3000);
 }
 
 void loop() {
@@ -64,21 +73,24 @@ void loop() {
   bool L = isWall(l_trigPin, l_echoPin);
   bool R = isWall(r_trigPin, r_echoPin);
 
-  switch (state) {
+  // if (emergencyStop()) {
+  //   delay(50);
+  //   return;
+  // }
 
+  switch (state) {
     case MOVING_FORWARD:
       if (!L) {
-        // turnLeft();
+        delay(TURN_DELAY);
         state = TURNING_LEFT;
       }
       else if (F) {
-        // turnRight();
         state = TURNING_RIGHT;
       }
       else {
-        // moveForward(l_in1, l_in2, LEFT_SPD);
-        // moveForward(r_in1, r_in2, RIGHT_SPD);
-        followLeftWall();
+        moveForward(IN1, IN2, ENA, LEFT_SPD);
+        moveForward(IN3, IN4, ENB, RIGHT_SPD);
+        // followLeftWall();
       }
       break;
 
@@ -86,34 +98,33 @@ void loop() {
       // Stop turning when left wall appears again
       if (L) {
         stopMotors();
-        moveForward(l_in1, l_in2, LEFT_SPD);
-        moveForward(r_in1, r_in2, RIGHT_SPD);
+        moveForward(IN1, IN2, ENA, LEFT_SPD);
+        moveForward(IN3, IN4, ENB, RIGHT_SPD);
         state = MOVING_FORWARD;
       } else {
+        stopMotors();
         turnLeft();
+        // delay(400);
       }
-      break;
+      break;  
 
     case TURNING_RIGHT:
       // Stop turning when front becomes clear
       if (!F) {
         stopMotors();
-        moveForward(l_in1, l_in2, LEFT_SPD);
-        moveForward(r_in1, r_in2, RIGHT_SPD);
+        moveForward(IN1, IN2, ENA, LEFT_SPD);
+        moveForward(IN3, IN4, ENB, RIGHT_SPD);
         state = MOVING_FORWARD;
+
       } else {
+        stopMotors();
         turnRight();
+        // delay(400);
       }
       break;
   }
 
-  moveForward(l_in1, l_in2, LEFT_SPD);
-  moveForward(r_in1, r_in2, RIGHT_SPD);
 
-  delay(3000);
-  reverseMotor(l_in1, l_in2, LEFT_TURN_SPD);
-  reverseMotor(r_in1, r_in2, RIGHT_TURN_SPD);
-  delay(3000);
 }
 
 
@@ -147,40 +158,43 @@ float getDistance(int trigPin, int echoPin) {
   return distance;
 }
 
-void moveForward(int in1, int in2, int spd) {
+void moveForward(int in1, int in2, int en, int spd) {
   digitalWrite(in1, HIGH);
+  digitalWrite(in2, LOW);
   Serial.println("Forward");
-
-  ledcWrite(in2, spd);     // set a speed here
+  ledcWrite(en, spd);
 }
 
-void reverseMotor(int in1, int in2, int spd) {
-  int reverse_spd = 1024-spd;
-  digitalWrite(in1, LOW);  
+void reverseMotor(int in1, int in2, int en, int spd) {
+  digitalWrite(in1, LOW);
+  digitalWrite(in2, HIGH);
   Serial.println("Reverse");
 
-  ledcWrite(in2, reverse_spd);
+  ledcWrite(en, spd);
 }
 
 void turnLeft() {
-  moveForward(r_in1, r_in2, RIGHT_TURN_SPD);
-  reverseMotor(l_in1, l_in2, LEFT_TURN_SPD);
+  reverseMotor(IN3, IN4, ENB, RIGHT_TURN_SPD);
+  moveForward(IN1, IN2, ENA, LEFT_TURN_SPD);
   Serial.println("Left");
 }
 
 void turnRight() {
-  moveForward(l_in1, l_in2, LEFT_TURN_SPD);
-  reverseMotor(r_in1, r_in2, RIGHT_TURN_SPD);
+  reverseMotor(IN1, IN2, ENA, LEFT_TURN_SPD);
+  moveForward(IN3, IN4, ENB, RIGHT_TURN_SPD);
   Serial.println("Right");
 }
 
 void stopMotors() {
-  digitalWrite(l_in1, LOW);
-  digitalWrite(r_in1, LOW);
-  Serial.println("Stopped.");
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, LOW);
 
-  ledcWrite(l_in2, 0);     // Fast
-  ledcWrite(r_in2, 0);
+  ledcWrite(ENA, 0);
+  ledcWrite(ENB, 0);
+
+  Serial.println("Stop");
 }
 
 void followLeftWall() {
@@ -193,9 +207,20 @@ void followLeftWall() {
   int rightSpeed = RIGHT_SPD + correction;
 
   // Clamp speeds
-  leftSpeed  = constrain(leftSpeed,  0, 1023);
-  rightSpeed = constrain(rightSpeed, 0, 1023);
+  leftSpeed  = constrain(leftSpeed,  0, 255);
+  rightSpeed = constrain(rightSpeed, 0, 255);
 
-  moveForward(l_in1, l_in2, leftSpeed);
-  moveForward(r_in1, r_in2, rightSpeed);
+  moveForward(IN1, IN2, ENA, leftSpeed);
+  moveForward(IN3, IN4, ENB, rightSpeed);
+}
+
+bool emergencyStop() {
+  float frontDist = getDistance(f_trigPin, f_echoPin);
+
+  if (frontDist <= EMERGENCY_STOP_DIST) {
+    stopMotors();
+    Serial.println("EMERGENCY STOP !!!");
+    return true;
+  }
+  return false;
 }
